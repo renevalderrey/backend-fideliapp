@@ -1,0 +1,122 @@
+// Schema de Prisma: define cómo es la base de datos
+// Prisma lo lee y crea las tablas automáticamente
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// PostgreSQL: base de datos en la nube (Supabase)
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Tabla de restaurantes (3 sucursales en el demo)
+model Restaurant {
+  id            String     @id @default(uuid())
+  name          String
+  // Cuántos puntos vale cada peso: 1.0 = 1 punto por $1 (ahora sumaremos fijo 1 pt por pedido, pero dejamos esto por si acaso)
+  pointsPerPeso Float      @default(1.0)
+  
+  // Medios de pago aceptados por esta sucursal
+  acceptsCash        Boolean @default(true)
+  acceptsTransfer    Boolean @default(true)
+  acceptsMercadoPago Boolean @default(true)
+  
+  createdAt     DateTime   @default(now())
+
+  // Relaciones: un restaurante tiene muchos clientes, pedidos y productos
+  customers     Customer[]
+  orders        Order[]
+  products      Product[]
+}
+
+// Nueva tabla de Productos (Catálogo)
+model Product {
+  id           String     @id @default(uuid())
+  name         String
+  description  String?
+  price        Float
+  imageUrl     String?
+  createdAt    DateTime   @default(now())
+
+  // Relaciones
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String
+  orderItems   OrderItem[]
+  optionGroups ProductOptionGroup[]
+}
+
+// Grupo de Opciones (ej: "Bebida", "Agregados")
+model ProductOptionGroup {
+  id            String    @id @default(uuid())
+  name          String
+  isRequired    Boolean   @default(false)
+  maxSelections Int       @default(1)
+  
+  product       Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId     String
+  choices       ProductOptionChoice[]
+}
+
+// Opciones Individuales (ej: "Coca Cola +$500")
+model ProductOptionChoice {
+  id              String    @id @default(uuid())
+  name            String
+  additionalPrice Float     @default(0)
+  
+  group           ProductOptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId         String
+}
+
+// Tabla de clientes del restaurante
+model Customer {
+  id          String   @id @default(uuid())
+  name        String
+  phone       String   // Teléfono único para identificar al cliente
+  totalPoints Int      @default(0) // Puntos acumulados totales
+  createdAt   DateTime @default(now())
+
+  // Relaciones
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String
+  orders       Order[]
+
+  // No puede haber dos clientes con el mismo teléfono en el mismo restaurante
+  @@unique([phone, restaurantId])
+}
+
+// Tabla de pedidos adaptada al carrito
+model Order {
+  id           String   @id @default(uuid())
+  amount       Float    // Monto total en pesos
+  pointsEarned Int      // Puntos ganados en este pedido (1 punto ahora)
+  orderType    String   @default("delivery") // delivery, pickup, mesa
+  // Token único que iba en el QR, lo dejamos por retrocompatibilidad
+  qrToken      String   @unique @default(uuid())
+  // "pending" = nuevo, "preparing", "ready", "delivered"
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+
+  // Relaciones
+  customer     Customer   @relation(fields: [customerId], references: [id])
+  customerId   String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String
+  items        OrderItem[]
+}
+
+// Item individual dentro de un Pedido (el carrito del cliente)
+model OrderItem {
+  id              String  @id @default(uuid())
+  quantity        Int
+  price           Float   // Precio base + opciones al momento de la compra
+  selectedOptions String? // JSON o texto de las opciones elegidas para rápido acceso ("+ Coca, + Cheddar")
+  
+  // Relaciones
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId         String
+  product         Product @relation(fields: [productId], references: [id])
+  productId       String
+}
